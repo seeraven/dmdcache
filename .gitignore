@@ -27,6 +27,9 @@ docs/
 *.pyc
 venv/
 
+# Dlang stuff
+dlang/
+
 # Temporary files
 *~
 *.bak

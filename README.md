@@ -1,6 +1,8 @@
 DMD Compiler Cache
 ==================
 
+[![Build Status](https://travis-ci.com/seeraven/dmdcache.svg?branch=master)](https://travis-ci.com/seeraven/dmdcache)
+
 This project contains a simple python based compiler cache for the `dmd` D
 compiler.
 
@@ -46,12 +48,13 @@ Development
 -----------
 
 `dmdcache` consists of a single source file `src/dmdcache`. All available tests
-are executed in a venv environment and are instrumented in the `Makefile`. To
-get a list of all available targets call
+are instrumented in the `Makefile`. To get a list of all available targets call
 
     make help
 
-For example, all style checks are executed in a venv environment by calling
+All main targets can be executed in a venv environment by using the `.venv`
+suffix. For example, all style checks are executed in a venv environment by
+calling
 
-    make check-style
+    make check-style.venv
 
