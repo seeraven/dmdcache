@@ -22,3 +22,11 @@ docs/
 
 # Code coverage
 *.lst
+
+# Python stuff
+*.pyc
+venv/
+
+# Temporary files
+*~
+*.bak

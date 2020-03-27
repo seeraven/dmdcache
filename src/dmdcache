@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Simple Compiler Cache for the D Compiler dmd.
+
+Copyright (c) 2020 by Clemens Rabe <clemens.rabe@clemensrabe.de>
+All rights reserved.
+This file is part of dmdcache (https://github.com/seeraven/dmdcache) and is
+released under the "BSD 3-Clause License". Please see the LICENSE file that
+is included as part of this package.
+"""
+
+
+# -----------------------------------------------------------------------------
+# Module Import
+# -----------------------------------------------------------------------------
+import copy
+import hashlib
+import os
+import subprocess
+import sys
+
+
+# -----------------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------------
+DMDCACHE_DIR = os.getenv('DMDCACHE_DIR', os.path.join(os.getenv('HOME', '/'), '.dmdcache'))
+DMDCACHE_DEBUG = os.getenv('DMDCACHE_DEBUG', '') == '1'
+CALLED_AS_DMD = os.path.basename(sys.argv[0]) == 'dmd'
+
+if DMDCACHE_DEBUG:
+    print("Settings:")
+    print(" Cache directory: %s" % DMDCACHE_DIR)
+    if CALLED_AS_DMD:
+        print(" Called as:       `dmd`")
+    else:
+        print(" Called as:       `dmdcache`")
+
+
+# -----------------------------------------------------------------------------
+# dmd part
+# -----------------------------------------------------------------------------
+def get_new_env():
+    """Get a new os.environ environment with the PATH variable stripped by the overlay path."""
+    new_env = copy.deepcopy(os.environ)
+    new_env['PATH'] = ':'.join([i for i in new_env['PATH'].split(':')
+                                if not i.startswith('/usr/lib/dmdcache')])
+    return new_env
+
+
+def call_original_cmd():
+    """Call the original dmd command."""
+    ret_val = subprocess.run(['/usr/bin/dmd'] + sys.argv[1:], env=get_new_env(),
+                             shell=False, check=False)
+    sys.exit(ret_val.returncode)
+
+
+if CALLED_AS_DMD:
+    DMD_OPTIONS = [i for i in sys.argv[1:] if i.startswith('-')]
+    DMD_FILES = [i for i in sys.argv[1:] if not i.startswith('-')]
+
+    # Determine output file
+    OUTPUT_FILE = None
+    for OPTION in DMD_OPTIONS:
+        if OPTION.startswith('-of='):
+            OUTPUT_FILE = OPTION[4:]
+            break
+        if OPTION.startswith('-of'):
+            OUTPUT_FILE = OPTION[3:]
+            break
+
+    # Fallback to original command call if we have a direct run call or
+    # no output file
+    if '-run' in DMD_OPTIONS or OUTPUT_FILE is None:
+        call_original_cmd()
+
+    # Generate hash of call using command line arguments and given source files
+    HASHER = hashlib.new('md5')
+    HASHER.update(' '.join(DMD_OPTIONS).encode('utf-8'))
+    HASHER.update(' '.join(DMD_FILES).encode('utf-8'))
+
+    try:
+        for SOURCE_FILE in DMD_FILES:
+            HASHER.update(open(SOURCE_FILE, 'rb').read())
+    # pylint: disable=W0702
+    except:
+        call_original_cmd()
+
+    ID_HASH = HASHER.hexdigest()
+
+    if DMDCACHE_DEBUG:
+        print("Options: %s" % DMD_OPTIONS)
+        print("Files:   %s" % DMD_FILES)
+        print("Output:  %s" % OUTPUT_FILE)
+        print("ID Hash: %s" % ID_HASH)
+
+    CACHE_ENTRY_DIR = os.path.join(DMDCACHE_DIR, ID_HASH)
+    CACHE_HIT = False
+
+    if os.path.exists(CACHE_ENTRY_DIR):
+        # Check imported files
+        DMD_IMPORTS = open(os.path.join(CACHE_ENTRY_DIR, 'imports'), 'r').read()
+        FULL_HASH = open(os.path.join(CACHE_ENTRY_DIR, 'fullhash'), 'r').read()
+
+        try:
+            if DMD_IMPORTS:
+                for filename in DMD_IMPORTS.split('\n'):
+                    HASHER.update(open(filename, 'rb').read())
+            CACHE_HIT = HASHER.hexdigest() == FULL_HASH
+        # pylint: disable=W0703
+        except Exception as exception:
+            if DMDCACHE_DEBUG:
+                print("dmdcache: Can't read all previous imports from %s (%s)!" %
+                      (CACHE_ENTRY_DIR, exception))
+            CACHE_HIT = False
+
+    if CACHE_HIT:
+        if '-v' in sys.argv:
+            print(open(os.path.join(CACHE_ENTRY_DIR, 'stdout'), 'r').read(), end='')
+        print(open(os.path.join(CACHE_ENTRY_DIR, 'stderr'), 'r').read(), end='', file=sys.stderr)
+        os.system("cp -d --preserve=mode %s %s" % (os.path.join(CACHE_ENTRY_DIR, 'object.o'),
+                                                   OUTPUT_FILE))
+    else:
+        # Call dmd with -v option
+        CMD_RET = subprocess.run(['/usr/bin/dmd', '-v'] + DMD_OPTIONS + DMD_FILES,
+                                 env=get_new_env(),
+                                 shell=False,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,
+                                 universal_newlines=True,
+                                 check=False)
+        if '-v' in sys.argv:
+            print(CMD_RET.stdout, end='')
+        print(CMD_RET.stderr, end='', file=sys.stderr)
+
+        if CMD_RET.returncode == 0:
+            # Generate cache entry
+            if not os.path.exists(CACHE_ENTRY_DIR):
+                try:
+                    os.makedirs(CACHE_ENTRY_DIR)
+                # pylint: disable=W0702
+                except:
+                    print("dmdcache: Can't generate output directory %s!" % CACHE_ENTRY_DIR,
+                          file=sys.stderr)
+                    sys.exit(0)
+
+            try:
+                open(os.path.join(CACHE_ENTRY_DIR, 'stdout'), 'w').write(CMD_RET.stdout)
+                open(os.path.join(CACHE_ENTRY_DIR, 'stderr'), 'w').write(CMD_RET.stderr)
+            # pylint: disable=W0702
+            except:
+                print("dmdcache: Can't save stdout/stderr to %s!" % CACHE_ENTRY_DIR,
+                      file=sys.stderr)
+                os.system("rm -rf %s" % CACHE_ENTRY_DIR)
+                sys.exit(0)
+
+            if os.path.exists(OUTPUT_FILE):
+                os.system("cp -a %s %s" % (OUTPUT_FILE, os.path.join(CACHE_ENTRY_DIR, 'object.o')))
+            else:
+                print("dmdcache: Output file %s does not exist!" % OUTPUT_FILE,
+                      file=sys.stderr)
+                os.system("rm -rf %s" % CACHE_ENTRY_DIR)
+                sys.exit(0)
+
+            DMD_IMPORTS = []
+            for line in CMD_RET.stdout.split('\n'):
+                if line.startswith('import ') and '/usr/include' not in line:
+                    DMD_IMPORTS.append(line.split('(')[1][:-1])
+
+            try:
+                for filename in sorted(DMD_IMPORTS):
+                    HASHER.update(open(filename, 'rb').read())
+            # pylint: disable=W0702
+            except:
+                print("dmdcache: Can't read one of the imports (%s)!" % DMD_IMPORTS,
+                      file=sys.stderr)
+                os.system("rm -rf %s" % CACHE_ENTRY_DIR)
+                sys.exit(0)
+
+            try:
+                open(os.path.join(CACHE_ENTRY_DIR, 'imports'), 'w').write(
+                    '\n'.join(sorted(DMD_IMPORTS)))
+                open(os.path.join(CACHE_ENTRY_DIR, 'fullhash'), 'w').write(HASHER.hexdigest())
+            # pylint: disable=W0702
+            except:
+                print("dmdcache: Can't save imports list and full hash to %s!" % CACHE_ENTRY_DIR,
+                      file=sys.stderr)
+                os.system("rm -rf %s" % CACHE_ENTRY_DIR)
+                sys.exit(0)
+
+        sys.exit(CMD_RET.returncode)
+
+
+# -----------------------------------------------------------------------------
+# dmdcache part
+# -----------------------------------------------------------------------------
+if not CALLED_AS_DMD:
+    if 'system-setup' in sys.argv:
+        os.system('mkdir -p /usr/lib/dmdcache')
+        os.system('ln -s /usr/bin/dmdcache /usr/lib/dmdcache/dmd')
+        print("Created symlink /usr/lib/dmdcache/dmd -> /usr/bin/dmdcache")
+        print()
+        print("Please make sure that you add the directory /usr/lib/dmdcache "
+              "to your PATH environment variable!")
+        sys.exit(0)
+    print("Usage: dmdcache system-setup")
+    sys.exit(1)
+
+
+# -----------------------------------------------------------------------------
+# EOF
+# -----------------------------------------------------------------------------
