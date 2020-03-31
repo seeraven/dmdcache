@@ -10,5 +10,6 @@ install:
   - make dlang
 script:
   - make check-style
+  - make test.dlang
 notifications:
   email: true

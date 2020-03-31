@@ -33,3 +33,6 @@ dlang/
 # Temporary files
 *~
 *.bak
+
+# Test workspace
+test/workspace/

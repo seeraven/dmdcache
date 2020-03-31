@@ -26,6 +26,7 @@ import sys
 # -----------------------------------------------------------------------------
 DMDCACHE_DIR = os.getenv('DMDCACHE_DIR', os.path.join(os.getenv('HOME', '/'), '.dmdcache'))
 DMDCACHE_DEBUG = os.getenv('DMDCACHE_DEBUG', '') == '1'
+DMD_BIN = os.getenv('DMDCACHE_DMDBIN', '/usr/bin/dmd')
 CALLED_AS_DMD = os.path.basename(sys.argv[0]) == 'dmd'
 
 if DMDCACHE_DEBUG:
@@ -50,7 +51,7 @@ def get_new_env():
 
 def call_original_cmd():
     """Call the original dmd command."""
-    ret_val = subprocess.run(['/usr/bin/dmd'] + sys.argv[1:], env=get_new_env(),
+    ret_val = subprocess.run([DMD_BIN] + sys.argv[1:], env=get_new_env(),
                              shell=False, check=False)
     sys.exit(ret_val.returncode)
 
@@ -122,7 +123,7 @@ if CALLED_AS_DMD:
                                                    OUTPUT_FILE))
     else:
         # Call dmd with -v option
-        CMD_RET = subprocess.run(['/usr/bin/dmd', '-v'] + DMD_OPTIONS + DMD_FILES,
+        CMD_RET = subprocess.run([DMD_BIN, '-v'] + DMD_OPTIONS + DMD_FILES,
                                  env=get_new_env(),
                                  shell=False,
                                  stdout=subprocess.PIPE,
