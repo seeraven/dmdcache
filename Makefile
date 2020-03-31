@@ -22,9 +22,9 @@ SHELL     = /bin/bash
 #  DEFAULT TARGETS
 # ----------------------------------------------------------------------------
 
-.PHONY: help system-setup venv-bash check-style-venv pylint pycodestyle flake8 clean
+.PHONY: help system-setup venv-bash check-style-venv pylint pycodestyle flake8 test clean
 
-all:	check-style.venv
+all:	check-style.venv test.dlang
 
 
 # ----------------------------------------------------------------------------
@@ -46,9 +46,19 @@ help:
 	@echo " pycodestyle      : Call pycodestyle on the source files."
 	@echo " flake8           : Call flake8 on the source files."
 	@echo
+	@echo "Targets for Functional Tests in local DMD setup:"
+	@echo " test.dlang       : Execute the functional tests."
+	@echo
+	@echo "Targets for Functional Tests in System Environment:"
+	@echo " test             : Execute the functional tests."
+	@echo
 	@echo "venv Setup:"
 	@echo " venv             : Create the venv."
 	@echo " venv-bash        : Start a new shell in the venv for debugging."
+	@echo
+	@echo "DMD Setup:"
+	@echo " dlang            : Download and install dmd in the dlang directory."
+	@echo " dlang-bash       : Start a new shell with activated dlang environment."
 	@echo
 	@echo "Misc Targets:"
 	@echo " system-setup     : Install all dependencies in the currently"
@@ -153,9 +163,12 @@ flake8:
 	@echo "flake8 found no errors."
 
 
-#.PHONY: test
-#test:
-#	@test/run_tests.sh
+# ----------------------------------------------------------------------------
+#  FUNCTIONAL TESTS
+# ----------------------------------------------------------------------------
+
+test:
+	@test/run_tests.sh
 
 
 # ----------------------------------------------------------------------------
