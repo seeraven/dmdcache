@@ -196,16 +196,57 @@ if CALLED_AS_DMD:
 # dmdcache part
 # -----------------------------------------------------------------------------
 if not CALLED_AS_DMD:
-    if 'system-setup' in sys.argv:
+    import argparse
+    DESCRIPTION = """
+DMD Compiler Cache
+==================
+
+`dmdcache` is a simple python script to cache `dmd` objects in order to speed
+up the compile process. All object files are stored in the cache directory
+`~/.dmdcache` that can be changed by using the `DMDCACHE_DIR` environment
+variable.
+
+
+Installation
+------------
+
+This script should be located at `/usr/bin/dmdcache`. The symlink
+`/usr/lib/dmdcache/dmd` should point to `/usr/bin/dmdcache` and the directory
+`/usr/lib/dmdcache` must be in your `PATH` variable before the `/usr/bin` entry.
+
+
+Customization
+-------------
+
+The following environment variables are recognized by `dmdcache`:
+
+  - `DMDCACHE_DIR` specifies the directory to store the cached object files.
+    If not specified, it defaults to `~/.dmdcache`.
+  - `DMDCACHE_DEBUG` can be used to debug `dmdcache` by printing more information.
+    To enable debugging, set this variable to '1'.
+  - `DMDCACHE_DMDBIN` gives the location of the real `dmd` compiler. The
+    default value is `/usr/bin/dmd` and must be rarely changed.
+"""
+    PARSER = argparse.ArgumentParser(description = DESCRIPTION,
+                                     formatter_class = argparse.RawDescriptionHelpFormatter)
+    PARSER.add_argument('command',
+                        action = 'store',
+                        choices = ['system-setup', 'version'],
+                        help = 'The command.')
+    ARGS   = PARSER.parse_args()
+
+    if ARGS.command == 'version':
+        print("dmdcache Version 0.0.1")
+
+    elif ARGS.command == 'system-setup':
         os.system('mkdir -p /usr/lib/dmdcache')
         os.system('ln -s /usr/bin/dmdcache /usr/lib/dmdcache/dmd')
         print("Created symlink /usr/lib/dmdcache/dmd -> /usr/bin/dmdcache")
         print()
         print("Please make sure that you add the directory /usr/lib/dmdcache "
               "to your PATH environment variable!")
-        sys.exit(0)
-    print("Usage: dmdcache system-setup")
-    sys.exit(1)
+
+    sys.exit(0)
 
 
 # -----------------------------------------------------------------------------
