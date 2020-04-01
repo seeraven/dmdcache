@@ -58,3 +58,9 @@ calling
 
     make check-style.venv
 
+The functional tests require a `dmd` command. If you don't have one in your
+system, you can install it locally in the `dlang` subdirectory by adding
+the `.dlang` suffix to the make target. So to execute the functional tests
+with a local `dmd` installation, call:
+
+    make test.dlang
