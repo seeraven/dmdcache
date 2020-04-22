@@ -10,7 +10,7 @@ Vcs-Browser: https://github.com/seeraven/dmdcache
 
 Package: dmdcache
 Architecture: all
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}, python3
 Description: Compiler cache for fast recompilation of D code
  dmdcache is a compiler cache for the dmd compiler. It speeds up
  recompilation by caching previous compilations and detecting when
