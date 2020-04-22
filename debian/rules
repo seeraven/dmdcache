@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+# output every command that modifies files on the build system.
+#export DH_VERBOSE = 1
+
+# Package name and destination directory
+PACKAGE          = $(shell dh_listpackages)
+TMP              = $(CURDIR)/debian/$(PACKAGE)
+
+%:
+	dh $@ 
+
+override_dh_auto_install:
+	mkdir -p  $(TMP)/usr/bin
+	cp -a     src/dmdcache $(TMP)/usr/bin
+	mkdir -p  $(TMP)/usr/lib/dmdcache
+	ln -s     /usr/bin/dmdcache $(TMP)/usr/lib/dmdcache/dmd
+
+override_dh_auto_build:
+	echo "dh_auto_build skipped."
+
+override_dh_auto_test:
+	echo "dh_auto_test skipped."

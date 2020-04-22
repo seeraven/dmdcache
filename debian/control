@@ -1,0 +1,17 @@
+Source: dmdcache
+Section: devel
+Priority: optional
+Maintainer: Clemens Rabe <debian@clemensrabe.de>
+Build-Depends: debhelper (>= 9), dpkg-dev (>= 1.16.1~)
+Standards-Version: 3.9.8
+Homepage: https://github.com/seeraven/dmdcache
+Vcs-git: https://github.com/seeraven/dmdcache
+Vcs-Browser: https://github.com/seeraven/dmdcache
+
+Package: dmdcache
+Architecture: all
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Compiler cache for fast recompilation of D code
+ dmdcache is a compiler cache for the dmd compiler. It speeds up
+ recompilation by caching previous compilations and detecting when
+ the same compilation is being done again.
