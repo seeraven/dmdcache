@@ -16,7 +16,7 @@
 
 export TEST_BASE_DIR=$(dirname $(readlink -f $0))
 DMDCACHE_DIR=$(dirname ${TEST_BASE_DIR})/src
-DMDCACHE_BIN=${DMDCACHE_DIR}/dmdcache
+export DMDCACHE_BIN=${DMDCACHE_DIR}/dmdcache
 export WORKSPACE=${TEST_BASE_DIR}/workspace
 
 

@@ -37,7 +37,7 @@ TEST_SOURCE_FILE=${WORKSPACE}/program/hello_world.d
 # ----------------------------------------------------------------------------
 
 dmd -of=${WORKSPACE}/tmp/hello_world ${TEST_SOURCE_FILE}
-NUM_OBJS_IN_CACHE=$(ls ${DMDCACHE_DIR} | wc -l)
+NUM_OBJS_IN_CACHE=$(ls --hide=stats --hide=usage --hide=*.lock ${DMDCACHE_DIR} | wc -l)
 if [ ${NUM_OBJS_IN_CACHE} -ne 1 ]; then
     echo
     echo "ERROR: dmdcache not filled with first item!"
@@ -51,7 +51,7 @@ fi
 
 echo "" >> ${TEST_SOURCE_FILE}
 dmd -of=${WORKSPACE}/tmp/hello_world ${TEST_SOURCE_FILE}
-NUM_OBJS_IN_CACHE=$(ls ${DMDCACHE_DIR} | wc -l)
+NUM_OBJS_IN_CACHE=$(ls --hide=stats --hide=usage --hide=*.lock ${DMDCACHE_DIR} | wc -l)
 if [ ${NUM_OBJS_IN_CACHE} -ne 2 ]; then
     echo
     echo "ERROR: dmdcache not filled with second item!"

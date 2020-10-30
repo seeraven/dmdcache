@@ -31,10 +31,16 @@ rm -rf ${DMDCACHE_DIR}/* 2>/dev/null || true
 # ----------------------------------------------------------------------------
 
 dmd -of=${WORKSPACE}/tmp/hello_world ${TEST_SOURCE_FILE}
-NUM_OBJS_IN_CACHE=$(ls ${DMDCACHE_DIR} | wc -l)
+NUM_OBJS_IN_CACHE=$(ls --hide=stats --hide=usage --hide=*.lock ${DMDCACHE_DIR} | wc -l)
 if [ ${NUM_OBJS_IN_CACHE} -ne 1 ]; then
     echo
     echo "ERROR: dmdcache not filled with first item!"
+    exit 1
+fi
+if ! ${DMDCACHE_BIN} statistics | grep "Cache misses:" | grep -q "1"; then
+    echo
+    echo "ERROR: dmdcache statistics mismatch. Expected 1 cache miss."
+    ${DMDCACHE_BIN} statistics
     exit 1
 fi
 
@@ -44,10 +50,16 @@ fi
 # ----------------------------------------------------------------------------
 
 dmd -of=${WORKSPACE}/tmp/hello_world -I/tmp ${TEST_SOURCE_FILE}
-NUM_OBJS_IN_CACHE=$(ls ${DMDCACHE_DIR} | wc -l)
+NUM_OBJS_IN_CACHE=$(ls --hide=stats --hide=usage --hide=*.lock ${DMDCACHE_DIR} | wc -l)
 if [ ${NUM_OBJS_IN_CACHE} -ne 2 ]; then
     echo
     echo "ERROR: dmdcache not filled with second item!"
+    exit 1
+fi
+if ! ${DMDCACHE_BIN} statistics | grep "Cache misses:" | grep -q "2"; then
+    echo
+    echo "ERROR: dmdcache statistics mismatch. Expected 2 cache misses."
+    ${DMDCACHE_BIN} statistics
     exit 1
 fi
 
@@ -57,10 +69,16 @@ fi
 # ----------------------------------------------------------------------------
 
 dmd -of=${WORKSPACE}/tmp/hello_world -O ${TEST_SOURCE_FILE}
-NUM_OBJS_IN_CACHE=$(ls ${DMDCACHE_DIR} | wc -l)
+NUM_OBJS_IN_CACHE=$(ls --hide=stats --hide=usage --hide=*.lock ${DMDCACHE_DIR} | wc -l)
 if [ ${NUM_OBJS_IN_CACHE} -ne 3 ]; then
     echo
     echo "ERROR: dmdcache not filled with third item!"
+    exit 1
+fi
+if ! ${DMDCACHE_BIN} statistics | grep "Cache misses:" | grep -q "3"; then
+    echo
+    echo "ERROR: dmdcache statistics mismatch. Expected 3 cache misses."
+    ${DMDCACHE_BIN} statistics
     exit 1
 fi
 

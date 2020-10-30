@@ -14,11 +14,16 @@ is included as part of this package.
 # -----------------------------------------------------------------------------
 # Module Import
 # -----------------------------------------------------------------------------
+import ast
 import copy
+import errno
+import fcntl
+import glob
 import hashlib
 import os
 import subprocess
 import sys
+import time
 
 
 # -----------------------------------------------------------------------------
@@ -26,12 +31,23 @@ import sys
 # -----------------------------------------------------------------------------
 DMDCACHE_DIR = os.getenv('DMDCACHE_DIR', os.path.join(os.getenv('HOME', '/'), '.dmdcache'))
 DMDCACHE_DEBUG = os.getenv('DMDCACHE_DEBUG', '') == '1'
+DMDCACHE_SIZE = os.getenv('DMDCACHE_SIZE', '20G')
 DMD_BIN = os.getenv('DMDCACHE_DMDBIN', '/usr/bin/dmd')
 CALLED_AS_DMD = os.path.basename(sys.argv[0]) == 'dmd'
+
+if DMDCACHE_SIZE[-1] in ('G', 'g'):
+    DMDCACHE_SIZE = int(DMDCACHE_SIZE[:-1]) * 1024 * 1024 * 1024
+elif DMDCACHE_SIZE[-1] in ('M', 'm'):
+    DMDCACHE_SIZE = int(DMDCACHE_SIZE[:-1]) * 1024 * 1024
+elif DMDCACHE_SIZE[-1] in ('K', 'k'):
+    DMDCACHE_SIZE = int(DMDCACHE_SIZE[:-1]) * 1024
+else:
+    DMDCACHE_SIZE = int(DMDCACHE_SIZE)
 
 if DMDCACHE_DEBUG:
     print("Settings:")
     print(" Cache directory: %s" % DMDCACHE_DIR)
+    print(" Cache size:      %d bytes" % DMDCACHE_SIZE)
     if CALLED_AS_DMD:
         print(" Called as:       `dmd`")
     else:
@@ -41,6 +57,197 @@ if DMDCACHE_DEBUG:
 # -----------------------------------------------------------------------------
 # dmd part
 # -----------------------------------------------------------------------------
+class Lockfile:
+    """
+    Simple lockfile decorator.
+
+    Inspired by
+    https://github.com/derpston/python-simpleflock/blob/master/src/simpleflock.py.
+    """
+
+    def __init__(self, lockfile, timeout = None):
+        """Construct a new lockfile.
+
+        Args:
+            lockfile (str):  The path to the lockfile (will be recreated).
+            timeout (float): The maximum time to wait until the lock can be
+                             aquired in seconds.
+        """
+        self.lockfile = lockfile
+        self.timeout = timeout
+        self.filehandle = None
+
+    def __enter__(self):
+        """Enter the with statement."""
+        self.filehandle = os.open(self.lockfile, os.O_CREAT)
+        start_time = time.time()
+        end_time = start_time + self.timeout if self.timeout is not None else None
+        while True:
+            try:
+                fcntl.flock(self.filehandle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except (OSError, IOError) as ex:  # noqa: B014
+                if ex.errno != errno.EAGAIN:
+                    raise
+                if end_time is not None and time.time() > end_time:
+                    raise
+            time.sleep(0.1)
+
+    def __exit__(self, *args):
+        """Exit the with statement."""
+        fcntl.flock(self.filehandle, fcntl.LOCK_UN)
+        os.close(self.filehandle)
+        self.filehandle = None
+
+
+class Statistics:
+    """Representation of the persistent statistics.
+
+    Statistics that have no cache object available are stored in the DMDCACHE_DIR/stats
+    file. Statistics with relations to cache objects like cache misses and hits are
+    stored in the subdirectories with the first two characters of the ID hash, e.g.,
+    DMDCACHE_DIR/fe/stats.
+    """
+
+    def __init__(self):
+        """Construct a new statistics object."""
+        self.global_filename = os.path.join(DMDCACHE_DIR, "stats")
+        self.global_lockfile = self.global_filename + ".lock"
+
+    def _read_global_statistics(self):
+        """Read the global statistics from disc."""
+        try:
+            stats = ast.literal_eval(open(self.global_filename, 'r').read())
+        except (FileNotFoundError, SyntaxError):
+            stats = {'direct': 0,
+                     'error':  0}
+        return stats
+
+    def _write_global_statistics(self, stats):
+        """Write the global statistics to disc."""
+        open(self.global_filename, 'w').write(repr(stats))
+
+    @staticmethod
+    def _read_cache_statistics(stats_filename):
+        """Read the cache entry related statistics from disc."""
+        try:
+            stats = ast.literal_eval(open(stats_filename, 'r').read())
+        except (FileNotFoundError, SyntaxError):
+            stats = {'hit': 0,
+                     'miss':  0}
+        return stats
+
+    @staticmethod
+    def _write_cache_statistics(stats_filename, stats):
+        """Write the cache entry related statistics to disc."""
+        open(stats_filename, 'w').write(repr(stats))
+
+    def get_current_statistics(self):
+        """Get the current statistics."""
+        with Lockfile(self.global_lockfile):
+            stats = self._read_global_statistics()
+        stats['hit'] = 0
+        stats['miss'] = 0
+        for id_hash in ("%02x" % i for i in range(256)):
+            part_filename = os.path.join(DMDCACHE_DIR, id_hash, "stats")
+            part_lockfile = part_filename + ".lock"
+            if os.path.exists(part_filename):
+                with Lockfile(part_lockfile):
+                    cache_stats = self._read_cache_statistics(part_filename)
+                    stats['hit'] += cache_stats['hit']
+                    stats['miss'] += cache_stats['miss']
+
+        return stats
+
+    def increment(self, key, id_hash = None):
+        """Increment the given key of the statistics.
+
+        Args:
+            key (str):     The key 'hit', 'miss', 'direct' or 'error'.
+            id_hash (str): The id hash for 'hit' and 'miss' keys.
+        """
+        if key in ("direct", "error"):
+            with Lockfile(self.global_lockfile):
+                stats = self._read_global_statistics()
+                stats[key] = stats[key] + 1
+                self._write_global_statistics(stats)
+        elif key in ("hit", "miss"):
+            part_filename = os.path.join(DMDCACHE_DIR, id_hash[:2], "stats")
+            part_lockfile = part_filename + ".lock"
+            with Lockfile(part_lockfile):
+                stats = self._read_cache_statistics(part_filename)
+                stats[key] = stats[key] + 1
+                self._write_cache_statistics(part_filename, stats)
+
+
+class CacheUsage:
+    """Representation of the persistent cache usage."""
+
+    def __init__(self):
+        """Construct a new usage object."""
+        self.filename = os.path.join(DMDCACHE_DIR, "usage")
+        self.lockfile = self.filename + ".lock"
+
+    def _read_usage(self):
+        """Read the size entry from disc."""
+        try:
+            used_size = ast.literal_eval(open(self.filename, 'r').read())
+        except (FileNotFoundError, SyntaxError):
+            used_size = 0
+        return used_size
+
+    def _write_usage(self, used_size):
+        """Write the size entry to disc."""
+        open(self.filename, 'w').write(repr(used_size))
+
+    def cleanup_cache(self):
+        """Recalculate the cache size and clean up if necessary."""
+        with Lockfile(self.lockfile):
+            total_size = 0
+            entries = []
+            for obj_file in glob.glob(os.path.join(DMDCACHE_DIR, "??", "*", "object.o")):
+                cache_dir = os.path.dirname(obj_file)
+                cache_time = os.stat(obj_file).st_mtime
+                cache_size = 0
+                for cache_entry_file in ['stdout', 'stderr', 'object.o', 'imports', 'fullhash']:
+                    cache_size += os.path.getsize(os.path.join(cache_dir, cache_entry_file))
+                total_size += cache_size
+                entries.append([cache_time, cache_size, cache_dir])
+
+            if total_size > DMDCACHE_SIZE:
+                # Sort according to time
+                entries.sort(key = lambda tup: tup[0], reverse=True)
+                target_size = DMDCACHE_SIZE * 80 / 100
+                cache_size = 0
+                for entry in entries:
+                    if cache_size < target_size:
+                        cache_size += entry[1]
+                    else:
+                        os.system("rm -rf %s" % entry[2])
+                total_size = cache_size
+
+            self._write_usage(total_size)
+
+    def add_new_entry(self, id_hash):
+        """Add a new cache entry to the total size usage.
+
+        Args:
+            id_hash (str): The ID identifying the cache entry.
+        """
+        cache_subdir = os.path.join(DMDCACHE_DIR, id_hash[:2])
+        cache_entry_dir = os.path.join(cache_subdir, id_hash[2:])
+        entry_size = 0
+        for cache_entry_file in ['stdout', 'stderr', 'object.o', 'imports', 'fullhash']:
+            entry_size += os.path.getsize(os.path.join(cache_entry_dir, cache_entry_file))
+        with Lockfile(self.lockfile):
+            used_size = self._read_usage()
+            used_size += entry_size
+            self._write_usage(used_size)
+
+        if used_size > DMDCACHE_SIZE:
+            self.cleanup_cache()
+
+
 def get_new_env():
     """Get a new os.environ environment with the PATH variable stripped by the overlay path."""
     new_env = copy.deepcopy(os.environ)
@@ -70,13 +277,18 @@ if CALLED_AS_DMD:
             OUTPUT_FILE = OPTION[3:]
             break
 
+    STATISTICS = Statistics()
+
     # Fallback to original command call if we have a direct run call or
     # no output file
     if '-run' in DMD_OPTIONS or OUTPUT_FILE is None:
+        STATISTICS.increment('direct')
         call_original_cmd()
 
-    # Generate hash of call using command line arguments and given source files
+    # Generate hash of dmd binary size (to detect version changes) and the current call
+    # using command line arguments and given source files
     HASHER = hashlib.new('md5')
+    HASHER.update(str(os.path.getsize(DMD_BIN)).encode('utf-8'))
     HASHER.update(' '.join(DMD_OPTIONS).encode('utf-8'))
     HASHER.update(' '.join(DMD_FILES).encode('utf-8'))
 
@@ -85,6 +297,7 @@ if CALLED_AS_DMD:
             HASHER.update(open(SOURCE_FILE, 'rb').read())
     # pylint: disable=W0702
     except:
+        STATISTICS.increment('error')
         call_original_cmd()
 
     ID_HASH = HASHER.hexdigest()
@@ -95,7 +308,7 @@ if CALLED_AS_DMD:
         print("Output:  %s" % OUTPUT_FILE)
         print("ID Hash: %s" % ID_HASH)
 
-    CACHE_ENTRY_DIR = os.path.join(DMDCACHE_DIR, ID_HASH)
+    CACHE_ENTRY_DIR = os.path.join(DMDCACHE_DIR, ID_HASH[:2], ID_HASH[2:])
     CACHE_HIT = False
 
     if os.path.exists(CACHE_ENTRY_DIR):
@@ -116,11 +329,13 @@ if CALLED_AS_DMD:
             CACHE_HIT = False
 
     if CACHE_HIT:
+        STATISTICS.increment('hit', ID_HASH)
         if '-v' in sys.argv:
             print(open(os.path.join(CACHE_ENTRY_DIR, 'stdout'), 'r').read(), end='')
         print(open(os.path.join(CACHE_ENTRY_DIR, 'stderr'), 'r').read(), end='', file=sys.stderr)
         os.system("cp -d --preserve=mode %s %s" % (os.path.join(CACHE_ENTRY_DIR, 'object.o'),
                                                    OUTPUT_FILE))
+        os.utime(os.path.join(CACHE_ENTRY_DIR, 'object.o'))
     else:
         # Call dmd with -v option
         CMD_RET = subprocess.run([DMD_BIN, '-v'] + DMD_OPTIONS + DMD_FILES,
@@ -141,6 +356,7 @@ if CALLED_AS_DMD:
                     os.makedirs(CACHE_ENTRY_DIR)
                 # pylint: disable=W0702
                 except:
+                    STATISTICS.increment('error')
                     print("dmdcache: Can't generate output directory %s!" % CACHE_ENTRY_DIR,
                           file=sys.stderr)
                     sys.exit(0)
@@ -150,6 +366,7 @@ if CALLED_AS_DMD:
                 open(os.path.join(CACHE_ENTRY_DIR, 'stderr'), 'w').write(CMD_RET.stderr)
             # pylint: disable=W0702
             except:
+                STATISTICS.increment('error')
                 print("dmdcache: Can't save stdout/stderr to %s!" % CACHE_ENTRY_DIR,
                       file=sys.stderr)
                 os.system("rm -rf %s" % CACHE_ENTRY_DIR)
@@ -158,6 +375,7 @@ if CALLED_AS_DMD:
             if os.path.exists(OUTPUT_FILE):
                 os.system("cp -a %s %s" % (OUTPUT_FILE, os.path.join(CACHE_ENTRY_DIR, 'object.o')))
             else:
+                STATISTICS.increment('error')
                 print("dmdcache: Output file %s does not exist!" % OUTPUT_FILE,
                       file=sys.stderr)
                 os.system("rm -rf %s" % CACHE_ENTRY_DIR)
@@ -173,6 +391,7 @@ if CALLED_AS_DMD:
                     HASHER.update(open(filename, 'rb').read())
             # pylint: disable=W0702
             except:
+                STATISTICS.increment('error')
                 print("dmdcache: Can't read one of the imports (%s)!" % DMD_IMPORTS,
                       file=sys.stderr)
                 os.system("rm -rf %s" % CACHE_ENTRY_DIR)
@@ -184,10 +403,16 @@ if CALLED_AS_DMD:
                 open(os.path.join(CACHE_ENTRY_DIR, 'fullhash'), 'w').write(HASHER.hexdigest())
             # pylint: disable=W0702
             except:
+                STATISTICS.increment('error')
                 print("dmdcache: Can't save imports list and full hash to %s!" % CACHE_ENTRY_DIR,
                       file=sys.stderr)
                 os.system("rm -rf %s" % CACHE_ENTRY_DIR)
                 sys.exit(0)
+
+            STATISTICS.increment('miss', ID_HASH)
+
+            CACHE_USAGE = CacheUsage()
+            CACHE_USAGE.add_new_entry(ID_HASH)
 
         sys.exit(CMD_RET.returncode)
 
@@ -226,17 +451,20 @@ The following environment variables are recognized by `dmdcache`:
     To enable debugging, set this variable to '1'.
   - `DMDCACHE_DMDBIN` gives the location of the real `dmd` compiler. The
     default value is `/usr/bin/dmd` and must be rarely changed.
+  - `DMDCACHE_SIZE` gives the cache size. The default is `20G`. Use the suffixes
+    `G` for gigabytes, `M` for megabytes and `K` for kilobytes.
 """
     PARSER = argparse.ArgumentParser(description = DESCRIPTION,
                                      formatter_class = argparse.RawDescriptionHelpFormatter)
     PARSER.add_argument('command',
                         action = 'store',
-                        choices = ['system-setup', 'version'],
+                        choices = ['system-setup', 'version', 'statistics', 'zero-statistics',
+                                   'clean-cache'],
                         help = 'The command.')
     ARGS   = PARSER.parse_args()
 
     if ARGS.command == 'version':
-        print("dmdcache Version 0.0.1")
+        print("dmdcache Version 0.0.2")
 
     elif ARGS.command == 'system-setup':
         os.system('mkdir -p /usr/lib/dmdcache')
@@ -245,6 +473,21 @@ The following environment variables are recognized by `dmdcache`:
         print()
         print("Please make sure that you add the directory /usr/lib/dmdcache "
               "to your PATH environment variable!")
+
+    elif ARGS.command == 'statistics':
+        STATISTICS = Statistics().get_current_statistics()
+        print("Statistics:")
+        print(" Cache hits:   %d" % STATISTICS['hit'])
+        print(" Cache misses: %d" % STATISTICS['miss'])
+        print(" Direct calls: %d" % STATISTICS['direct'])
+        print(" Errors:       %d" % STATISTICS['error'])
+
+    elif ARGS.command == 'zero-statistics':
+        os.system('rm -f %s/stats %s/*/stats' % (DMDCACHE_DIR, DMDCACHE_DIR))
+
+    elif ARGS.command == 'clean-cache':
+        CACHE_USAGE = CacheUsage()
+        CACHE_USAGE.cleanup_cache()
 
     sys.exit(0)
 

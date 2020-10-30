@@ -38,6 +38,12 @@ if [ "${OBJ_CACHE_DIR}" == "" ]; then
     exit 1
 fi
 OBJ_CACHE_FILE=${OBJ_CACHE_DIR}/object.o
+if ! ${DMDCACHE_BIN} statistics | grep "Cache misses:" | grep -q "1"; then
+    echo
+    echo "ERROR: dmdcache statistics mismatch. Expected 1 cache miss."
+    ${DMDCACHE_BIN} statistics
+    exit 1
+fi
 
 
 # ----------------------------------------------------------------------------
@@ -50,6 +56,12 @@ dmd -of=${WORKSPACE}/tmp/hello_world ${TEST_SOURCE_FILE}
 if ! cmp ${OBJ_CACHE_FILE} ${WORKSPACE}/tmp/hello_world >/dev/null 2>/dev/null; then
     echo
     echo "ERROR: dmdcache not used (option -of=)!"
+    exit 1
+fi
+if ! ${DMDCACHE_BIN} statistics | grep "Cache hits:" | grep -q "1"; then
+    echo
+    echo "ERROR: dmdcache statistics mismatch. Expected 1 cache hit."
+    ${DMDCACHE_BIN} statistics
     exit 1
 fi
 

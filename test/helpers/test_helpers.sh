@@ -15,7 +15,7 @@
 # ----------------------------------------------------------------------------
 function getCacheWithObjectFile()
 {
-    for FILE in ${DMDCACHE_DIR}/*/object.o; do
+    for FILE in ${DMDCACHE_DIR}/*/*/object.o; do
         if cmp $FILE $1 >/dev/null 2>/dev/null; then
             echo $(dirname $FILE)
             return
