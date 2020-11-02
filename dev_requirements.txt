@@ -7,3 +7,4 @@ pep8-naming
 flake8-import-order
 flake8-docstrings
 flake8-comprehensions
+pyinstaller

@@ -36,3 +36,6 @@ dlang/
 
 # Test workspace
 test/workspace/
+
+# pyInstaller releases
+releases/

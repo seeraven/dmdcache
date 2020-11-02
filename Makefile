@@ -52,6 +52,13 @@ help:
 	@echo "Targets for Functional Tests in System Environment:"
 	@echo " test             : Execute the functional tests."
 	@echo
+	@echo "Targets for Distribution:"
+	@echo " pyinstaller.venv       : Generate dist/dmdcache distributable."
+	@echo " pyinstaller-test.dlang : Test the dist/dmdcache distributable"
+	@echo "                          using the functional tests."
+	@echo " build-release          : Build the distributables for Ubuntu 16.04,"
+	@echo "                          18.04 and 20.04 in the releases dir."
+	@echo
 	@echo "venv Setup:"
 	@echo " venv             : Create the venv."
 	@echo " venv-bash        : Start a new shell in the venv for debugging."
@@ -172,11 +179,55 @@ test:
 
 
 # ----------------------------------------------------------------------------
+#  DISTRIBUTION
+# ----------------------------------------------------------------------------
+
+pyinstaller: dist/dmdcache
+
+dist/dmdcache:
+	@pyinstaller src/dmdcache --onefile
+
+pyinstaller-test: dist/dmdcache
+	@test/run_tests_dist.sh
+
+build-release: releases/dmdcache_Ubuntu16.04_amd64 releases/dmdcache_Ubuntu18.04_amd64 releases/dmdcache_Ubuntu20.04_amd64
+
+releases/dmdcache_Ubuntu16.04_amd64:
+	@mkdir -p releases
+	@docker run --rm \
+	-e TGTUID=$(shell id -u) -e TGTGID=$(shell id -g) \
+	-v $(PWD):/workdir \
+	ubuntu:16.04 \
+	/workdir/build_in_docker/ubuntu.sh
+
+releases/dmdcache_Ubuntu18.04_amd64:
+	@mkdir -p releases
+	@docker run --rm \
+	-e TGTUID=$(shell id -u) -e TGTGID=$(shell id -g) \
+	-v $(PWD):/workdir \
+	ubuntu:18.04 \
+	/workdir/build_in_docker/ubuntu.sh
+
+releases/dmdcache_Ubuntu20.04_amd64:
+	@mkdir -p releases
+	@docker run --rm \
+	-e TGTUID=$(shell id -u) -e TGTGID=$(shell id -g) \
+	-v $(PWD):/workdir \
+	ubuntu:20.04 \
+	/workdir/build_in_docker/ubuntu.sh
+
+
+# ----------------------------------------------------------------------------
 #  MAINTENANCE TARGETS
 # ----------------------------------------------------------------------------
 
 clean:
+	@rm -rf venv dlang
+	@rm -rf dist build *.spec
 	@find . -iname "*~" -exec rm -f {} \;
 	@find . -iname "*.pyc" -exec rm -f {} \;
-	@rm -rf venv dlang
 
+
+# ----------------------------------------------------------------------------
+#  EOF
+# ----------------------------------------------------------------------------
