@@ -1,3 +1,9 @@
+dmdcache (0.0.3-1) precise; urgency=low
+
+  * Changed the default hash algorithm to md4 resp. sha1.
+
+ -- Clemens Rabe <clemens.rabe@clemensrabe.de>  Sun, 01 Nov 2020 07:10:00 +0100
+
 dmdcache (0.0.2-1) precise; urgency=low
 
   * Added support for statistics and limited cache size.

@@ -32,6 +32,8 @@ import time
 DMDCACHE_DIR = os.getenv('DMDCACHE_DIR', os.path.join(os.getenv('HOME', '/'), '.dmdcache'))
 DMDCACHE_DEBUG = os.getenv('DMDCACHE_DEBUG', '') == '1'
 DMDCACHE_SIZE = os.getenv('DMDCACHE_SIZE', '20G')
+DMDCACHE_HASH = os.getenv('DMDCACHE_HASH',
+                          'md4' if 'md4' in hashlib.algorithms_available else 'sha1')
 DMD_BIN = os.getenv('DMDCACHE_DMDBIN', '/usr/bin/dmd')
 CALLED_AS_DMD = os.path.basename(sys.argv[0]) == 'dmd'
 
@@ -48,6 +50,7 @@ if DMDCACHE_DEBUG:
     print("Settings:")
     print(" Cache directory: %s" % DMDCACHE_DIR)
     print(" Cache size:      %d bytes" % DMDCACHE_SIZE)
+    print(" Hash algorithm:  %s" % DMDCACHE_HASH)
     if CALLED_AS_DMD:
         print(" Called as:       `dmd`")
     else:
@@ -287,7 +290,7 @@ if CALLED_AS_DMD:
 
     # Generate hash of dmd binary size (to detect version changes) and the current call
     # using command line arguments and given source files
-    HASHER = hashlib.new('md5')
+    HASHER = hashlib.new(DMDCACHE_HASH)
     HASHER.update(str(os.path.getsize(DMD_BIN)).encode('utf-8'))
     HASHER.update(' '.join(DMD_OPTIONS).encode('utf-8'))
     HASHER.update(' '.join(DMD_FILES).encode('utf-8'))
@@ -453,6 +456,9 @@ The following environment variables are recognized by `dmdcache`:
     default value is `/usr/bin/dmd` and must be rarely changed.
   - `DMDCACHE_SIZE` gives the cache size. The default is `20G`. Use the suffixes
     `G` for gigabytes, `M` for megabytes and `K` for kilobytes.
+  - `DMDCACHE_HASH` gives the hash algorithm. Default is the guaranteed algorithm
+    'sha1'. The fastest should be 'md4' although it is not a guaranteed algorithm
+    and could be unavailable on your system.
 """
     PARSER = argparse.ArgumentParser(description = DESCRIPTION,
                                      formatter_class = argparse.RawDescriptionHelpFormatter)
@@ -464,7 +470,7 @@ The following environment variables are recognized by `dmdcache`:
     ARGS   = PARSER.parse_args()
 
     if ARGS.command == 'version':
-        print("dmdcache Version 0.0.2")
+        print("dmdcache Version 0.0.3")
 
     elif ARGS.command == 'system-setup':
         os.system('mkdir -p /usr/lib/dmdcache')
